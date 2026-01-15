@@ -94,9 +94,12 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
       if (context) {
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
         const imageDataUrl = canvas.toDataURL('image/jpeg');
+        
         setCapturedImage(imageDataUrl);
         stopCamera();
-        startAnalysis();
+        
+        // IMPORTANT: Pass the result directly here too
+        startAnalysis(imageDataUrl);
       }
     }
   };
@@ -106,26 +109,89 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
     if (file) {
       const reader = new FileReader();
       reader.onloadend = () => {
-        setCapturedImage(reader.result as string);
+        const result = reader.result as string;
+        
+        // 1. Set state for the UI
+        setCapturedImage(result);
+        
+        // 2. Stop camera
         stopCamera();
-        startAnalysis();
+        
+        // 3. IMPORTANT: Pass the result directly to the function
+        startAnalysis(result); 
       };
       reader.readAsDataURL(file);
     }
   };
 
-  const startAnalysis = () => {
+
+  // 1. Add state for dynamic data
+  const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // 2. Replace the old startAnalysis with this real API call
+  const startAnalysis = async (imageSrc?: string) => {
+    // Use the passed argument directly, fallback to state only if necessary
+    const activeImage = imageSrc || capturedImage;
+    
+    if (!activeImage) {
+        console.error("No image to analyze");
+        return;
+    }
+
     setScanStep('analyzing');
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += 10;
-      setAnalysisProgress(progress);
-      
-      if (progress >= 100) {
-        clearInterval(interval);
-        setTimeout(() => setScanStep('results'), 500);
+    setAnalysisProgress(0);
+
+    // 1. Get Location (Geolocation API)
+    let userLat = "10.82"; 
+    let userLon = "106.62";
+
+    if ("geolocation" in navigator) {
+      try {
+        const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 5000 });
+        });
+        userLat = position.coords.latitude.toString();
+        userLon = position.coords.longitude.toString();
+      } catch (e) {
+        console.warn("Location access denied, using default.");
       }
-    }, 300);
+    }
+
+    const progressInterval = setInterval(() => {
+      setAnalysisProgress((prev) => Math.min(prev + 5, 90));
+    }, 100);
+
+    try {
+      // MODIFIED: Use activeImage instead of capturedImage
+      const res = await fetch(activeImage);
+      const blob = await res.blob();
+      const formData = new FormData();
+      formData.append('file', blob, 'scan.jpg');
+      
+      formData.append('lat', userLat);
+      formData.append('lon', userLon);
+
+      const response = await fetch('http://localhost:8000/api/scan/analyze', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      
+      clearInterval(progressInterval);
+      setAnalysisProgress(100);
+      setAnalysisResults(data); 
+      
+      setTimeout(() => {
+          setScanStep('results');
+      }, 500);
+
+    } catch (error) {
+      console.error("Analysis failed:", error);
+      clearInterval(progressInterval);
+      // Optional: Add error state handling here
+    }
   };
 
   const handleRetake = () => {
@@ -177,6 +243,12 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
       climate: 'HCMC Friendly',
     },
   ];
+
+  const [selectedPlantForViz, setSelectedPlantForViz] = useState<any>(null); // NEW: Track selected plant
+  const handleVisualize = (plant: any) => {
+  setSelectedPlantForViz(plant);
+  setScanStep('visualization');
+  };
 
   return (
     <div className="min-h-screen bg-white">
@@ -364,30 +436,47 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
         </div>
       )}
 
-      {/* Step 3: Results */}
-      {scanStep === 'results' && (
+      {/* Step 3: Results View - Integrated with Python Backend Data */}
+      {scanStep === 'results' && analysisResults && (
         <div className="pb-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          
+          {/* Analysis Summary Card */}
           <div className="bg-gradient-to-br from-green-600 to-green-800 text-white p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <Sparkles className="w-6 h-6 text-yellow-300" />
               <h3 className="text-xl font-bold">Analysis Complete</h3>
             </div>
+            
             <div className="grid grid-cols-2 gap-3">
+              {/* Dynamic Light Level */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <Sun className="w-5 h-5 mb-2 text-yellow-300" />
                 <p className="text-xs text-green-100">Light Level</p>
-                <p className="font-semibold text-sm">Moderate (55%)</p>
+                <p className="font-semibold text-sm">
+                  {analysisResults.analysis.lightLevel} ({analysisResults.analysis.lightScore}%)
+                </p>
               </div>
+
+              {/* Area Size (Mocked/Static for MVP) */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <MapPin className="w-5 h-5 mb-2 text-green-300" />
                 <p className="text-xs text-green-100">Area Size</p>
-                <p className="font-semibold text-sm">2.5 m²</p>
+                <p className="font-semibold text-sm">
+                  {analysisResults.analysis.areaSize || "2.5 m²"}
+                </p>
               </div>
+
+              {/* Dynamic Weather/Climate */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <CloudRain className="w-5 h-5 mb-2 text-blue-300" />
                 <p className="text-xs text-green-100">Climate</p>
-                <p className="font-semibold text-sm">Hot & Humid</p>
+                <p className="font-semibold text-sm capitalize">
+                  {/* Shows: "32°C, Scattered Clouds" */}
+                  {analysisResults.analysis.climate || "Hot & Humid"}
+                </p>
               </div>
+
+              {/* Capacity (Static for MVP) */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/10">
                 <CheckCircle2 className="w-5 h-5 mb-2 text-emerald-300" />
                 <p className="text-xs text-green-100">Capacity</p>
@@ -400,7 +489,7 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-lg font-bold text-gray-900">
-                   Top Matches
+                  Top Matches
                 </h3>
                 <p className="text-sm text-gray-600">
                   Based on your balcony conditions
@@ -412,8 +501,9 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
               </Button>
             </div>
 
+            {/* Dynamic Plant Recommendations */}
             <div className="space-y-4 mb-6">
-              {recommendations.map((plant) => (
+              {analysisResults.recommendations.map((plant: any) => (
                 <Card key={plant.id} className="overflow-hidden border-0 shadow-md ring-1 ring-gray-100">
                   <div className="flex gap-4 p-4">
                     <div className="w-24 h-24 rounded-xl overflow-hidden flex-shrink-0 bg-gray-100">
@@ -427,35 +517,39 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
                       <div className="flex items-start justify-between mb-2">
                         <div>
                           <h4 className="font-semibold text-gray-900">{plant.name}</h4>
-                          <p className="text-xs text-gray-500 italic">{plant.scientificName}</p>
+                          <Badge
+                            className={`mt-1 ${
+                              plant.matchScore >= 90
+                                ? 'bg-green-100 text-green-700 border-green-200'
+                                : 'bg-yellow-100 text-yellow-700 border-yellow-200'
+                            }`}
+                          >
+                            {plant.matchScore}% Match
+                          </Badge>
                         </div>
-                        <Badge
-                          className={`${
-                            plant.matchScore >= 90
-                              ? 'bg-green-100 text-green-700 border-green-200'
-                              : 'bg-yellow-100 text-yellow-700 border-yellow-200'
-                          }`}
-                        >
-                          {plant.matchScore}%
-                        </Badge>
                       </div>
                       
                       <p className="text-xs text-gray-600 mb-3 line-clamp-2">{plant.reason}</p>
                       
-                      <div className="flex flex-wrap gap-2 text-xs">
-                        <Badge variant="secondary" className="bg-gray-100 text-gray-600 font-normal">
-                           {plant.difficulty}
-                        </Badge>
-                        <Badge variant="secondary" className="bg-gray-100 text-gray-600 font-normal">
-                           {plant.harvestDays}
-                        </Badge>
-                      </div>
+                      {/* NEW: Individual Visualize Button */}
+                      <Button 
+                        size="sm" 
+                        variant="outline" 
+                        className="w-full border-green-600 text-green-700 hover:bg-green-50"
+                        onClick={() => handleVisualize(plant)}
+                      >
+                        <Sparkles className="w-3 h-3 mr-2" />
+                        Visualize This
+                      </Button>
                     </div>
                   </div>
                 </Card>
               ))}
             </div>
 
+            {/* Removed the generic "See Your Future Garden" button from here */}
+            
+            {/* Visualization Button (Leading to Step 4) */}
             <div className="space-y-3">
               <Button
                 onClick={() => setScanStep('visualization')}
@@ -465,53 +559,114 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
                 <Sparkles className="w-4 h-4 mr-2" />
                 See Your Future Garden (AI Preview)
               </Button>
-              <Button
-                variant="outline"
-                className="w-full border-green-600 text-green-700 hover:bg-green-50"
-                size="lg"
-              >
-                Order Planting Kit
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
             </div>
           </div>
         </div>
       )}
 
       {/* Step 4: AI Visualization */}
-      {scanStep === 'visualization' && capturedImage && (
+      {scanStep === 'visualization' && capturedImage && selectedPlantForViz && (
         <div className="pb-6 animate-in fade-in zoom-in-95 duration-500">
-          <div className="relative">
-            <div className="w-full aspect-[4/5] bg-gray-100">
-              <img
-                src={capturedImage}
-                alt="Visualized garden"
-                className="w-full h-full object-cover"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-green-900/40 via-transparent to-transparent pointer-events-none" />
-              
-              <div className="absolute bottom-1/4 left-1/4 w-32 h-32 border-2 border-dashed border-white/60 rounded-full bg-green-400/20 backdrop-blur-[1px] flex items-center justify-center">
-                 <span className="text-white text-xs font-bold shadow-black drop-shadow-md">Lettuce Zone</span>
-              </div>
-            </div>
-            
-            <div className="absolute top-4 left-4 right-4">
-              <Card className="bg-black/60 backdrop-blur-md border-white/10 p-3">
-                <div className="flex items-center gap-2 text-white text-sm">
-                  <Sparkles className="w-4 h-4 text-yellow-400" />
-                  <span className="font-medium">AI-Generated Garden Preview</span>
-                </div>
-              </Card>
-            </div>
+          
+          {/* Back Button Header */}
+          <div className="px-6 py-2">
+             <Button 
+               variant="ghost" 
+               onClick={() => setScanStep('results')}
+               className="text-gray-600 pl-0 hover:text-green-600"
+             >
+               <ArrowRight className="w-4 h-4 mr-2 rotate-180" /> {/* Back Arrow */}
+               Back to Results
+             </Button>
           </div>
+
+          {/* Step 4: AI Visualization (Improved Realism) */}
+          {scanStep === 'visualization' && capturedImage && selectedPlantForViz && (
+            <div className="pb-6 animate-in fade-in zoom-in-95 duration-500 h-full bg-white flex flex-col">
+
+              {/* AR Viewport */}
+              <div className="relative w-full flex-1 bg-gray-900 overflow-hidden">
+                
+                  {/* 1. User's Photo (The Room) */}
+                  <img
+                    src={capturedImage}
+                    alt="Room"
+                    className="w-full h-full object-cover opacity-90"
+                  />
+                  
+                  {/* 2. "Floor" Gradient - Helps blend the feet */}
+                  <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+
+                  {/* 3. The Plant Overlay (Positioned on "Floor") */}
+                  <div 
+                    className="absolute left-1/2 transform -translate-x-1/2"
+                    style={{ 
+                        bottom: '15%', // Heuristic: Floor is usually at the bottom
+                        perspective: '1000px' // Enables 3D rotation effect
+                    }}
+                  >
+                    {/* Container for Perspective Tricks */}
+                    <div className="relative group flex flex-col items-center">
+                        
+                        {/* A. The Contact Shadow (Crucial for realism) */}
+                        <div className="absolute -bottom-4 w-32 h-8 bg-black/60 blur-md rounded-[100%] transform scale-x-150" />
+                        
+                        {/* B. The Plant Image */}
+                        {/* We remove the 'rounded-full' to let the plant shape stand naturally */}
+                        <img 
+                          src={selectedPlantForViz.imageUrl} 
+                          className="w-48 h-48 object-cover rounded-2xl drop-shadow-2xl z-10" // Add rounded-2xl if using square photos
+                          style={{
+                              // Visual Trick: Tilt it slightly back to match floor perspective
+                              transform: 'rotateX(10deg)', 
+                              transformOrigin: 'bottom center'
+                          }}
+                          alt="Projected plant"
+                        />
+
+                        {/* C. The Label (Floating above) */}
+                        <div className="absolute -top-12 bg-white/90 backdrop-blur text-xs font-semibold px-3 py-1.5 rounded-lg shadow-lg border border-white/50 text-green-800 animate-bounce">
+                          Start {selectedPlantForViz.name} here?
+                          <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-white/90 rotate-45"></div>
+                        </div>
+                    </div>
+                  </div>
+              </div>
+
+          {/* Bottom Action Sheet */}
+          <div className="p-6 bg-white rounded-t-2xl -mt-6 relative z-20 shadow-[0_-5px_20px_rgba(0,0,0,0.1)]">
+            <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+            
+            <div className="flex items-center gap-4 mb-4">
+                <div className="w-16 h-16 bg-green-50 rounded-lg flex items-center justify-center border border-green-100">
+                    <CheckCircle2 className="w-8 h-8 text-green-600" />
+                </div>
+                <div>
+                    <h3 className="font-bold text-gray-900">Great Spot!</h3>
+                    <p className="text-sm text-gray-600">
+                        {selectedPlantForViz.name} will get optimal light here.
+                    </p>
+                </div>
+            </div>
+
+            <Button
+                className="w-full bg-green-600 hover:bg-green-700 h-12 text-lg shadow-lg shadow-green-600/20"
+                size="lg"
+            >
+                Add to My Garden
+            </Button>
+          </div>
+        </div>
+      )}
 
           <div className="px-6 pt-6 space-y-4">
             <div>
               <h3 className="text-xl font-bold text-gray-900 mb-2">
-                Your Garden in 60 Days
+                Your {selectedPlantForViz.name} Corner
               </h3>
               <p className="text-sm text-gray-600">
-                Based on your light conditions, we project optimal growth for leafy greens on the left and herbs on the right.
+                This spot has the perfect {analysisResults?.analysis.lightLevel} conditions for {selectedPlantForViz.name}. 
+                We project a harvest in approx {selectedPlantForViz.harvestDays || "45 days"}.
               </p>
             </div>
 
@@ -519,9 +674,9 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium text-gray-900 mb-1">Ready to start?</p>
+                  <p className="font-medium text-gray-900 mb-1">Ready to grow this?</p>
                   <p className="text-sm text-gray-600">
-                    Order a planting kit with recycled pots, soil, and seeds. Each kit includes a QR code for plant tracking.
+                    Get the specific soil mix and pot size for {selectedPlantForViz.name} delivered tomorrow.
                   </p>
                 </div>
               </div>
@@ -532,14 +687,7 @@ export function ScanScreen({ onNavigate }: ScanScreenProps) {
                 className="w-full bg-green-600 hover:bg-green-700 h-12 text-lg shadow-lg shadow-green-600/20"
                 size="lg"
               >
-                Order Complete Starter Kit - ₫299,000
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleRetake}
-                className="w-full border-gray-200 text-gray-600 hover:bg-gray-50 h-12"
-              >
-                Scan Another Space
+                Order {selectedPlantForViz.name} Kit - ₫150,000
               </Button>
             </div>
           </div>

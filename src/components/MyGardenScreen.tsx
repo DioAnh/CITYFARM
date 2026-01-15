@@ -1,8 +1,11 @@
-import { Plus, TrendingUp, Droplet, Sun, Calendar } from 'lucide-react';
+import { useState } from 'react';
+import { createPortal } from 'react-dom'; // CRITICAL IMPORT
+import { Plus, TrendingUp, Droplet, Sun, QrCode, X, Loader2, ArrowRight } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
+import { Input } from './ui/input';
 import type { Screen, Plant } from '../App';
 
 interface MyGardenScreenProps {
@@ -11,7 +14,13 @@ interface MyGardenScreenProps {
 }
 
 export function MyGardenScreen({ onNavigate, onPlantClick }: MyGardenScreenProps) {
-  const plants: Plant[] = [
+  // --- STATE ---
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanInput, setScanInput] = useState('');
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  // Initial Data
+  const [plants, setPlants] = useState<Plant[]>([
     {
       id: '1',
       name: 'Cherry Tomato',
@@ -20,7 +29,7 @@ export function MyGardenScreen({ onNavigate, onPlantClick }: MyGardenScreenProps
       daysGrowing: 11,
       harvestDays: 60,
       health: 'healthy',
-      imageUrl: 'https://images.unsplash.com/photo-1748432171507-c1d62fe2e859?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0b21hdG8lMjBwbGFudCUyMGdyb3dpbmd8ZW58MXx8fHwxNzY4MjMzNjc0fDA&ixlib=rb-4.1.0&q=80&w=1080',
+      imageUrl: 'https://images.unsplash.com/photo-1592841200221-a6898f307baa?auto=format&fit=crop&w=1000&q=80',
       nextWatering: 'Today, 5:00 PM',
       nextFertilizing: 'In 3 days',
       progress: 18,
@@ -33,7 +42,7 @@ export function MyGardenScreen({ onNavigate, onPlantClick }: MyGardenScreenProps
       daysGrowing: 15,
       harvestDays: 35,
       health: 'healthy',
-      imageUrl: 'https://images.unsplash.com/photo-1595735931739-0a99f2f0b0aa?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsZXR0dWNlJTIwZ3Jvd2luZyUyMHVyYmFufGVufDF8fHx8MTc2ODIzMzY3M3ww&ixlib=rb-4.1.0&q=80&w=1080',
+      imageUrl: 'https://images.unsplash.com/photo-1595735931739-0a99f2f0b0aa?auto=format&fit=crop&w=1000&q=80',
       nextWatering: 'Tomorrow, 8:00 AM',
       nextFertilizing: 'In 5 days',
       progress: 43,
@@ -46,25 +55,12 @@ export function MyGardenScreen({ onNavigate, onPlantClick }: MyGardenScreenProps
       daysGrowing: 23,
       harvestDays: 45,
       health: 'warning',
-      imageUrl: 'https://images.unsplash.com/photo-1633916872730-7199a52e483b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtaW50JTIwaGVyYiUyMHBsYW50fGVufDF8fHx8MTc2ODIzMzY3NHww&ixlib=rb-4.1.0&q=80&w=1080',
+      imageUrl: 'https://images.unsplash.com/photo-1633916872730-7199a52e483b?auto=format&fit=crop&w=1000&q=80',
       nextWatering: 'Today, 3:00 PM',
       nextFertilizing: 'Tomorrow',
       progress: 51,
-    },
-    {
-      id: '4',
-      name: 'Thai Chili',
-      type: 'Vegetable',
-      plantedDate: '2026-01-05',
-      daysGrowing: 7,
-      harvestDays: 90,
-      health: 'healthy',
-      imageUrl: 'https://images.unsplash.com/photo-1761669411746-8f401c29e9a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjaGlsaSUyMHBlcHBlciUyMHBsYW50fGVufDF8fHx8MTc2ODEzMjE2MXww&ixlib=rb-4.1.0&q=80&w=1080',
-      nextWatering: 'Today, 6:00 PM',
-      nextFertilizing: 'In 7 days',
-      progress: 8,
-    },
-  ];
+    }
+  ]);
 
   const stats = {
     totalPlants: plants.length,
@@ -73,160 +69,236 @@ export function MyGardenScreen({ onNavigate, onPlantClick }: MyGardenScreenProps
     avgCareRate: 87,
   };
 
+  // --- HANDLERS ---
+  const handleScanSubmit = async (code: string) => {
+    setIsProcessing(true);
+    try {
+      const formData = new FormData();
+      formData.append('code', code);
+      
+      const res = await fetch('http://localhost:8000/api/kit/scan', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await res.json();
+      
+      if (res.ok) {
+        setPlants(prev => [data.plant, ...prev]);
+        setIsScanning(false);
+      } else {
+        alert("Error: " + data.error);
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Could not connect to server.");
+    } finally {
+      setIsProcessing(false);
+      setScanInput('');
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 relative pb-20">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10">
-        <h2 className="text-xl font-bold text-gray-900">My Garden</h2>
-        <p className="text-sm text-gray-600">{stats.totalPlants} plants growing</p>
+      <header className="bg-white border-b border-gray-200 px-6 py-4 sticky top-0 z-10 flex justify-between items-center">
+        <div>
+           <h2 className="text-xl font-bold text-gray-900">My Garden</h2>
+           <p className="text-sm text-gray-600">{stats.totalPlants} plants growing</p>
+        </div>
+        
+        <Button 
+          size="sm" 
+          variant="outline" 
+          className="border-green-600 text-green-700 hover:bg-green-50"
+          onClick={() => setIsScanning(true)}
+        >
+          <QrCode className="w-4 h-4 mr-2" />
+          Activate Kit
+        </Button>
       </header>
 
+      {/* --- QR SCANNER MODAL (Fixed with Portal) --- */}
+      {isScanning && createPortal(
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center p-6 animate-in fade-in duration-200 backdrop-blur-sm">
+           <div className="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative">
+              <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+                 <h3 className="font-bold text-lg text-gray-900">Activate Smart Kit</h3>
+                 <button onClick={() => setIsScanning(false)} className="p-2 hover:bg-gray-200 rounded-full">
+                    <X className="w-5 h-5 text-gray-500" />
+                 </button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                 {/* Camera Placeholder */}
+                 <div className="aspect-square bg-gray-900 rounded-xl relative flex items-center justify-center overflow-hidden group">
+                    <div className="absolute inset-0 border-[30px] border-black/40 pointer-events-none z-10"></div>
+                    <div className="w-48 h-48 border-2 border-green-500 rounded-lg relative z-0">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-green-500 shadow-[0_0_15px_#22c55e] animate-scan-down"></div>
+                    </div>
+                    <p className="absolute bottom-4 text-white/80 text-xs font-medium z-20">Align QR Code within frame</p>
+                 </div>
+
+                 {/* MVP Simulation Controls */}
+                 <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                    <p className="text-[10px] text-center text-gray-400 mb-2 uppercase font-bold tracking-wider">
+                        Developer Mode: Simulate Scan
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                       <Button 
+                         variant="outline" 
+                         className="text-xs h-auto py-2 flex-col gap-1 hover:border-green-500 hover:bg-green-50 hover:text-green-700 bg-white"
+                         onClick={() => handleScanSubmit("CITYFARM-TOMATO-01")}
+                         disabled={isProcessing}
+                       >
+                         <span className="text-lg">🍅</span>
+                         Tomato
+                       </Button>
+                       <Button 
+                         variant="outline" 
+                         className="text-xs h-auto py-2 flex-col gap-1 hover:border-green-500 hover:bg-green-50 hover:text-green-700 bg-white"
+                         onClick={() => handleScanSubmit("CITYFARM-LETTUCE-01")}
+                         disabled={isProcessing}
+                       >
+                         <span className="text-lg">🥬</span>
+                         Lettuce
+                       </Button>
+                       <Button 
+                         variant="outline" 
+                         className="text-xs h-auto py-2 flex-col gap-1 hover:border-green-500 hover:bg-green-50 hover:text-green-700 bg-white"
+                         onClick={() => handleScanSubmit("CITYFARM-MINT-01")}
+                         disabled={isProcessing}
+                       >
+                         <span className="text-lg">🌿</span>
+                         Mint
+                       </Button>
+                    </div>
+                 </div>
+
+                 {/* Manual Input */}
+                 <div className="flex gap-2">
+                    <Input 
+                        placeholder="Or enter Kit ID manually..." 
+                        value={scanInput}
+                        onChange={(e) => setScanInput(e.target.value)}
+                        className="text-sm"
+                    />
+                    <Button 
+                        size="sm" 
+                        disabled={!scanInput || isProcessing}
+                        onClick={() => handleScanSubmit(scanInput)}
+                        className="bg-green-600 hover:bg-green-700"
+                    >
+                        {isProcessing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                    </Button>
+                 </div>
+              </div>
+           </div>
+        </div>,
+        document.body // Portal Target
+      )}
+
+      {/* Main Content */}
       <div className="px-6 py-6 space-y-6">
-        {/* Quick Stats */}
+        {/* Quick Stats Grid */}
         <div className="grid grid-cols-2 gap-3">
           <Card className="p-4 bg-green-50 border-green-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-green-600 rounded-full flex items-center justify-center shadow-sm">
                 <TrendingUp className="w-5 h-5 text-white" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-gray-900">{stats.healthyPlants}</p>
-                <p className="text-xs text-gray-600">Healthy</p>
+                <p className="text-xs text-gray-600 font-medium">Healthy Plants</p>
               </div>
             </div>
           </Card>
           <Card className="p-4 bg-yellow-50 border-yellow-200">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-yellow-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-yellow-600 rounded-full flex items-center justify-center shadow-sm">
                 <Droplet className="w-5 h-5 text-white" />
               </div>
               <div>
                 <p className="text-2xl font-bold text-gray-900">{stats.needsAttention}</p>
-                <p className="text-xs text-gray-600">Needs Care</p>
+                <p className="text-xs text-gray-600 font-medium">Needs Care</p>
               </div>
             </div>
           </Card>
         </div>
 
-        {/* Care Rate */}
-        <Card className="p-4">
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-semibold text-gray-900">Overall Care Rate</h3>
-            <span className="text-2xl font-bold text-green-600">{stats.avgCareRate}%</span>
-          </div>
-          <Progress value={stats.avgCareRate} className="h-2" />
-          <p className="text-xs text-gray-600 mt-2">
-            Great job! Your plants are thriving 🌱
-          </p>
-        </Card>
-
-        {/* Filter Tabs */}
-        <div className="flex gap-2 overflow-x-auto pb-2">
-          <Badge className="bg-green-600 text-white px-4 py-2 whitespace-nowrap">
-            All Plants ({plants.length})
-          </Badge>
-          <Badge variant="outline" className="px-4 py-2 whitespace-nowrap">
-            Vegetables (3)
-          </Badge>
-          <Badge variant="outline" className="px-4 py-2 whitespace-nowrap">
-            Herbs (1)
-          </Badge>
-          <Badge variant="outline" className="px-4 py-2 whitespace-nowrap">
-            Ready to Harvest (0)
-          </Badge>
-        </div>
-
-        {/* Plant Grid */}
+        {/* Plant List */}
         <div className="space-y-4">
           {plants.map((plant) => (
             <Card
               key={plant.id}
-              className="overflow-hidden cursor-pointer hover:shadow-lg transition-shadow"
+              className="overflow-hidden cursor-pointer hover:shadow-lg transition-all duration-300 animate-in fade-in slide-in-from-bottom-4 ring-1 ring-gray-100 hover:ring-green-100 relative z-0" // Ensure z-0 here
               onClick={() => onPlantClick(plant)}
             >
               <div className="relative h-48">
                 <img
                   src={plant.imageUrl}
                   alt={plant.name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover transition-transform duration-700 hover:scale-105"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                 
-                {/* Health Badge */}
                 <Badge
                   className={`absolute top-3 right-3 ${
                     plant.health === 'healthy'
-                      ? 'bg-green-600'
+                      ? 'bg-green-600/90 backdrop-blur-sm'
                       : plant.health === 'warning'
-                      ? 'bg-yellow-600'
-                      : 'bg-red-600'
-                  } text-white`}
+                      ? 'bg-yellow-600/90 backdrop-blur-sm'
+                      : 'bg-red-600/90 backdrop-blur-sm'
+                  } text-white border-0`}
                 >
                   {plant.health === 'healthy' ? '● Healthy' : plant.health === 'warning' ? '⚠ Warning' : '✕ Critical'}
                 </Badge>
 
-                {/* Plant Info Overlay */}
-                <div className="absolute bottom-3 left-3 right-3 text-white">
-                  <h3 className="text-lg font-bold mb-1">{plant.name}</h3>
-                  <p className="text-xs text-gray-200">{plant.type}</p>
+                <div className="absolute bottom-3 left-4 right-4 text-white">
+                  <h3 className="text-xl font-bold mb-0.5 shadow-sm">{plant.name}</h3>
+                  <p className="text-xs text-green-100 font-medium tracking-wide uppercase">{plant.type}</p>
                 </div>
               </div>
 
-              <div className="p-4 space-y-3">
-                {/* Progress */}
+              <div className="p-4 space-y-4">
                 <div>
                   <div className="flex items-center justify-between mb-2 text-sm">
-                    <span className="text-gray-600">Growth Progress</span>
-                    <span className="font-semibold text-gray-900">
-                      Day {plant.daysGrowing} / {plant.harvestDays}
+                    <span className="text-gray-500 font-medium">Growth Progress</span>
+                    <span className="font-bold text-gray-900">
+                      Day {plant.daysGrowing} <span className="text-gray-400 font-normal">/ {plant.harvestDays}</span>
                     </span>
                   </div>
-                  <Progress value={plant.progress} className="h-2" />
-                </div>
-
-                {/* Next Actions */}
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="flex items-center gap-2">
-                    <Droplet className="w-4 h-4 text-blue-600" />
-                    <div>
-                      <p className="text-xs text-gray-500">Next Water</p>
-                      <p className="font-medium text-gray-900">{plant.nextWatering}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Sun className="w-4 h-4 text-yellow-600" />
-                    <div>
-                      <p className="text-xs text-gray-500">Fertilize</p>
-                      <p className="font-medium text-gray-900">{plant.nextFertilizing}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Planted Date */}
-                <div className="flex items-center gap-2 text-xs text-gray-500 pt-2 border-t">
-                  <Calendar className="w-3 h-3" />
-                  <span>Planted {new Date(plant.plantedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                  <Progress value={Math.min(100, (plant.daysGrowing / (plant.harvestDays || 1)) * 100)} className="h-2" />
                 </div>
               </div>
             </Card>
           ))}
         </div>
 
-        {/* Add Plant CTA */}
-        <Card className="p-6 border-dashed border-2 border-gray-300 text-center">
-          <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+        {/* Bottom CTA */}
+        <Card className="p-8 border-dashed border-2 border-gray-200 bg-gray-50/50 text-center hover:bg-green-50/50 hover:border-green-200 transition-colors">
+          <div className="w-14 h-14 bg-white rounded-full flex items-center justify-center mx-auto mb-4 shadow-sm border border-gray-100">
             <Plus className="w-6 h-6 text-green-600" />
           </div>
-          <h3 className="font-semibold text-gray-900 mb-2">Add More Plants</h3>
-          <p className="text-sm text-gray-600 mb-4">
-            Scan your space to find more plants perfect for your garden
+          <h3 className="font-bold text-gray-900 mb-2">Grow Something New</h3>
+          <p className="text-sm text-gray-500 mb-6 max-w-xs mx-auto">
+             Start a new pot by scanning your environment or activating a smart kit.
           </p>
-          <Button
-            onClick={() => onNavigate('scan')}
-            className="bg-green-600 hover:bg-green-700"
-          >
-            Scan Space
-          </Button>
+          <div className="flex gap-3 justify-center">
+            <Button
+                onClick={() => onNavigate('scan')}
+                variant="outline"
+                className="bg-white border-gray-200 text-gray-700 hover:text-green-700 hover:border-green-300"
+            >
+                Scan Space
+            </Button>
+            <Button
+                onClick={() => setIsScanning(true)}
+                className="bg-green-600 hover:bg-green-700 shadow-lg shadow-green-600/20"
+            >
+                Activate Kit
+            </Button>
+          </div>
         </Card>
       </div>
     </div>
